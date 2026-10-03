@@ -4,11 +4,12 @@ require 'jekyll'
 require 'json'
 require 'licensee'
 require 'open-uri'
+require 'safe_yaml'
 
 module SpecHelper
   class << self
-    attr_accessor :config, :licenses, :site, :spdx
-    attr_accessor :osi_approved_licenses, :fsf_approved_licenses, :od_approved_licenses
+    attr_accessor :config, :licenses, :site, :spdx,
+                  :osi_approved_licenses, :fsf_approved_licenses, :od_approved_licenses
   end
 end
 
@@ -27,17 +28,21 @@ end
 def config
   SpecHelper.config ||= begin
     config = Jekyll::Configuration.new.read_config_file config_file
-    config = Jekyll::Utils.deep_merge_hashes(config, source: source)
-    Jekyll::Utils.deep_merge_hashes(Jekyll::Configuration::DEFAULTS, config)
+    config = Jekyll::Utils.deep_merge_hashes(config, source:)
+    config = Jekyll::Utils.deep_merge_hashes(Jekyll::Configuration::DEFAULTS, config)
+    # The specs validate language-independent license metadata and i18n data, not
+    # the routing layer, so polyglot is not loaded for this bare `site.read`. This
+    # keeps collection counts exact (polyglot otherwise renders the site once per
+    # language during a full build).
+    config['plugins'] = Array(config['plugins']) - ['jekyll-polyglot']
+    config
   end
 end
 
 def licenses
-  SpecHelper.licenses ||= begin
-    site.collections['licenses'].docs.map do |license|
-      spdx_lcase = File.basename(license.basename, '.txt')
-      license.to_liquid.merge('spdx-lcase' => spdx_lcase)
-    end
+  SpecHelper.licenses ||= site.collections['licenses'].docs.map do |license|
+    spdx_lcase = File.basename(license.basename, '.txt')
+    license.to_liquid.merge('spdx-lcase' => spdx_lcase)
   end
 end
 
@@ -74,9 +79,7 @@ def spdx_list
   SpecHelper.spdx ||= begin
     url = 'https://spdx.org/licenses/licenses.json'
     list = JSON.parse(OpenURI.open_uri(url).read)['licenses']
-    list.each_with_object({}) do |values, memo|
-      memo[values['licenseId']] = values
-    end
+    list.to_h { |values| [values['licenseId'], values] }
   end
 end
 
@@ -105,7 +108,7 @@ def fsf_approved_licenses
     object = JSON.parse(OpenURI.open_uri(url).read)
     licenses = {}
     object['licenses'].each_value do |meta|
-      next unless (meta.include? 'identifiers') && (meta['identifiers'].include? 'spdx') && (meta.include? 'tags') && (meta['tags'].include? 'libre')
+      next unless meta.dig('identifiers', 'spdx') && (meta.include? 'tags') && (meta['tags'].include? 'libre')
 
       meta['identifiers']['spdx'].each do |identifier|
         licenses[identifier.downcase] = meta['name']
@@ -138,6 +141,10 @@ module Licensee
       def license_dir
         dir = ::File.dirname(__FILE__)
         ::File.expand_path '../_licenses', dir
+      end
+
+      def spdx_dir
+        ::File.expand_path '../license-list-XML/src', __dir__
       end
     end
   end

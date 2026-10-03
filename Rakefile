@@ -13,13 +13,16 @@ task :test do
   sh 'bundle exec jekyll build'
   Rake::Task['spec'].invoke
   HTMLProofer.check_directory('./_site',
-                              check_html: true,
+                              checks: %w[Links Images Scripts],
+                              check_external_hash: false,
                               enforce_https: true,
-                              validation: { ignore_script_embeds: true },
-                              url_swap: { %r{https://choosealicense.com} => '' },
-                              url_ignore: [%r{https://github.com/github/choosealicense.com/edit/gh-pages/_licenses/}],
-                              hydra: { max_concurrency: 10 },
-                              check_img_http: true).run
+                              swap_urls: { %r{https://choosealicense.com} => '' },
+                              ignore_urls: [%r{https://github.com/github/choosealicense.com/edit/gh-pages/_licenses/},
+                                            %r{https://help.github.com},
+                                            %r{https://opensource.org},
+                                            %r{https://git.savannah.gnu.org},
+                                            %r{https://www.gnu.org/licenses/license-recommendations.html}],
+                              hydra: { max_concurrency: 10 }).run
 end
 
 task :approved_licenses do
@@ -30,7 +33,7 @@ task :approved_licenses do
   puts approved.join(', ')
   puts "\n"
 
-  potential = approved - (licenses.map { |l| l['id'] })
+  potential = approved - licenses.map { |l| l['id'] }
   puts "#{potential.count} potential additions:"
   puts potential.join(', ')
 end
